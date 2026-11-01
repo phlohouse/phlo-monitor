@@ -45,6 +45,93 @@ anything. File output always remains bounded, rotated JSONL. To save a terminal
 transcript, use shell redirection with `--format table`; that transcript has no
 collector-managed size limit or rotation.
 
+## Download and verify a released binary
+
+Releases contain static Linux binaries only. Choose `amd64` for x86-64 or
+`arm64` for AArch64. For a version such as `v0.1.0`, the three assets are:
+
+- `phlo-monitor_v0.1.0_linux_amd64`
+- `phlo-monitor_v0.1.0_linux_arm64`
+- `phlo-monitor_v0.1.0_SHA256SUMS`
+
+These are raw executables, not archives or installers. The example version
+works only after a maintainer publishes it. On Linux with curl and GNU
+coreutils, download the chosen asset and verify it before execution:
+
+```sh
+set -eu
+version=v0.1.0
+arch=amd64
+asset="phlo-monitor_${version}_linux_${arch}"
+sums="phlo-monitor_${version}_SHA256SUMS"
+base="https://github.com/phlohouse/phlo-monitor/releases/download/$version"
+curl --fail --location --output "$asset" "$base/$asset"
+curl --fail --location --output "$sums" "$base/$sums"
+sha256sum --strict --check --ignore-missing "$sums"
+chmod 0755 "$asset"
+test "$(./"$asset" --version)" = "phlo-monitor $version linux/$arch"
+./"$asset" --version
+```
+
+The checksum command ignores the manifest entry for the architecture you did
+not download. SHA-256 detects altered bytes, but the manifest is downloaded
+from the same release and is not an independent signature. Trust the repository
+and its release maintainers. No executable or service is installed automatically.
+
+`--version` prints one line, for example `phlo-monitor v0.1.0 linux/amd64`,
+and exits without reading inventory, cgroups, or history. Ordinary source builds
+report `dev`. A future plugin can pin an exact release and platform, verify
+the checksum, and compare this line before invoking the collector. It must also
+respect the versioned inventory and JSONL contracts. There is no Python plugin
+or automatic download/update behaviour in this repository.
+
+## Publish a version as a maintainer
+
+The manual **Release Linux binaries** workflow is the only release trigger.
+Pushing a tag alone does not publish anything. The workflow must be dispatched
+from `main`, and the supplied tag must already exist and point to a commit
+reachable from current remote `main`. Merge reviewed changes and confirm green
+CI before following this procedure. Do not run it to test packaging.
+
+Only stable tags of the form `vMAJOR.MINOR.PATCH` are accepted, without leading
+zeroes or prerelease/build suffixes. The tag is the version source of truth:
+asset names and the executable version use exactly that tag. There is no
+separate version file to keep in sync. Use a new patch version rather than
+reusing or moving an existing published tag. Consumers should pin exact
+versions, particularly before version 1.0.
+
+From this repository, with GitHub CLI authenticated as a release maintainer:
+
+```sh
+git fetch origin main --tags
+tag=v0.1.0
+git tag -a "$tag" origin/main -m "Release $tag"
+git push origin "refs/tags/$tag"
+gh workflow run release.yml --ref main -f tag="$tag"
+gh run list --workflow release.yml --limit 5
+```
+
+Use the displayed run ID with `gh run watch RUN_ID --exit-status`. After it
+succeeds, use `gh release view "$tag"` and follow the download/checksum/version
+verification above. Creating or dispatching a release is a deliberate publish
+action, not part of normal CI or a feature-branch push.
+
+The workflow tests the tagged source and builds with `CGO_ENABLED=0`. It checks
+both architectures' Go build metadata, executes the matching host binary's
+version command, and generates and verifies SHA-256 checksums. CI also exercises
+this packaging path with the unpublished validation version `v0.0.0`.
+Arm64 is cross-compiled, not executed on the amd64 runner.
+
+Only the publish job has repository write permission. It rechecks that the tag
+still resolves to the built commit and refuses any existing release, including
+drafts. Per-tag concurrency serialises release attempts. It uploads into a draft,
+downloads and checks the uploaded files, rechecks the tag, then publishes.
+No upload uses an overwrite option. A failure after draft creation can leave
+an unpublished draft. Inspect its assets and the run logs before deciding how
+to recover; retries deliberately refuse that existing draft. Never delete or
+replace a published release to make a retry pass. These workflow guards do not
+prevent an administrator from manually changing tags or releases outside it.
+
 ## Inventory contract, version 1
 
 ```json
@@ -191,7 +278,12 @@ test -z "$(gofmt -l .)"
 go vet ./...
 go test -race -cover ./...
 CGO_ENABLED=0 go build -trimpath ./cmd/phlo-monitor
+bash scripts/package-release.sh v0.0.0 .amp/in/release-check
 ```
+
+The packaging command runs on Linux with Bash, Go, and GNU coreutils. Its
+output directory must not already exist. It builds both architectures, checks
+native version output and both checksums, and never creates a tag or release.
 
 Tests use disposable directories, not Docker or running workloads. Long-term
 footprint, power-loss durability, production sandbox restrictions, and Phlo

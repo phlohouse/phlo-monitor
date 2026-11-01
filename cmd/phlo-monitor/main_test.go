@@ -6,11 +6,26 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	monitor "github.com/phlohouse/phlo-monitor"
 )
+
+func TestRunVersionWithoutCollection(t *testing.T) {
+	dir := t.TempDir()
+	output := filepath.Join(dir, "must-not-be-created")
+	var out, stderr bytes.Buffer
+	err := run(context.Background(), []string{"--version", "--inventory", filepath.Join(dir, "missing"), "--root", filepath.Join(dir, "missing-root"), "--output", output}, &out, &stderr)
+	want := "phlo-monitor dev " + runtime.GOOS + "/" + runtime.GOARCH + "\n"
+	if err != nil || out.String() != want || stderr.Len() != 0 {
+		t.Fatalf("version contract: stdout=%q stderr=%q error=%v", out.String(), stderr.String(), err)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("version request accessed history: %v", err)
+	}
+}
 
 func TestRunBoundedAndErrors(t *testing.T) {
 	dir := t.TempDir()

@@ -21,6 +21,9 @@ import (
 	monitor "github.com/phlohouse/phlo-monitor"
 )
 
+// Release builds set version from the validated Git tag with -ldflags -X.
+var version = "dev"
+
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("phlo-monitor", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -31,10 +34,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	interval := flags.Duration("interval", 15*time.Second, "sampling interval, at least one second")
 	count := flags.Int("count", 0, "stop after this many samples; zero runs until interrupted")
 	maxBytes := flags.Int64("max-bytes", 64<<20, "maximum bytes per history file; one rotation retained")
+	showVersion := flags.Bool("version", false, "print executable version and platform, then exit")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
+		return err
+	}
+	if *showVersion {
+		_, err := fmt.Fprintf(stdout, "phlo-monitor %s %s/%s\n", version, runtime.GOOS, runtime.GOARCH)
 		return err
 	}
 	if runtime.GOOS != "linux" {
