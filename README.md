@@ -2,7 +2,8 @@
 
 Host-side Linux cgroup v2 resource collection with Go's standard library.
 The executable reads a supplied inventory and kernel files, then writes JSON
-lines. It has no Docker client, network listener, database, or subprocesses.
+lines or terminal tables. It has no Docker client, network listener, database,
+or subprocesses.
 It is not installed automatically in Phlo deployments.
 
 ## Build and run
@@ -15,6 +16,7 @@ Docker Desktop and remote daemons need a collector on their Linux host.
 ```sh
 CGO_ENABLED=0 go build -trimpath ./cmd/phlo-monitor
 ./phlo-monitor --inventory ./inventory.json --count 3
+./phlo-monitor --inventory ./inventory.json --format table --count 3
 ./phlo-monitor --inventory ./inventory.json --output ./history/samples.jsonl
 ```
 
@@ -23,6 +25,25 @@ runs until SIGINT or SIGTERM. `--interval` accepts Go durations of at least one
 second. `--root` defaults to `/sys/fs/cgroup` and must expose the complete host
 hierarchy to include all ancestor limits. `--output -` writes to stdout without
 retention. `--max-bytes` defaults to 67108864 bytes per history file.
+
+`--format jsonl|table` selects stdout formatting. The default is `jsonl`, with
+the unchanged version-1 schema below. `table` prints a timestamped table per
+sample, without clearing the terminal. Columns show service, cgroup path, CPU
+percentage, charged memory in MiB, and warnings. Memory rounds to two decimal
+places. An unavailable CPU rate or memory value appears as `-`, not zero.
+The first sample has no CPU rate. A measured idle interval appears as `0.0`.
+Warnings list unavailable counter files. JSONL retains the detailed error text.
+Control characters in service names and paths appear as escaped text.
+
+Target rows follow inventory order. Inclusive ancestor measurements appear
+once in a separate section and must not be added to target rows. Targets can
+also overlap if the inventory explicitly includes a parent and its descendant;
+do not sum overlapping target rows. Cgroup paths distinguish service replicas.
+
+Table mode requires `--output -` and rejects a history file path before writing
+anything. File output always remains bounded, rotated JSONL. To save a terminal
+transcript, use shell redirection with `--format table`; that transcript has no
+collector-managed size limit or rotation.
 
 ## Inventory contract, version 1
 
